@@ -9,6 +9,30 @@ const log = logger.child({ module: 'soroban-client' });
 const SOROBAN_RPC_TIMEOUT_MS = 30_000;
 
 /**
+ * Validates that HTTP URLs are not used in production environments.
+ *
+ * In production, all Soroban RPC connections MUST use HTTPS to prevent
+ * man-in-the-middle attacks that could expose sensitive blockchain transaction
+ * data. HTTP is allowed only in development and test environments for local
+ * testing against private RPC instances.
+ *
+ * Security constraint: HTTP in production is a configuration error that must
+ * fail fast at application startup, not silently downgrade to plaintext.
+ *
+ * @param rpcUrl - The Soroban RPC URL being configured
+ * @param nodeEnv - The current environment (from NODE_ENV)
+ * @throws BlockchainError if HTTP is attempted in production
+ */
+function validateRpcUrlForEnvironment(rpcUrl: string, nodeEnv: string): void {
+  if (nodeEnv === 'production' && rpcUrl.startsWith('http://')) {
+    throw new BlockchainError(
+      `HTTP URLs are not allowed in production. Use HTTPS instead. Received: ${rpcUrl}`,
+      { rpcUrl, nodeEnv },
+    );
+  }
+}
+
+/**
  * The one resilient entry point to Soroban RPC (ARCHITECTURE.md §4, adopted
  * from PHASE_2_REFERENCE_ANALYSIS.md §5.4). Per-contract typed clients
  * (src/blockchain/contracts/*) and unsigned-transaction builders
@@ -20,6 +44,7 @@ export class SorobanClient {
   private readonly breaker: CircuitBreaker;
 
   constructor(rpcUrl: string = getConfig().SOROBAN_RPC_URL) {
+    validateRpcUrlForEnvironment(rpcUrl, getConfig().NODE_ENV);
     rpc.AxiosClient.defaults.timeout = SOROBAN_RPC_TIMEOUT_MS;
     this.server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith('http://') });
     this.breaker = new CircuitBreaker();

@@ -20,6 +20,30 @@ export class SorobanClient {
   private readonly breaker: CircuitBreaker;
 
   constructor(rpcUrl: string = getConfig().SOROBAN_RPC_URL) {
+    const config = getConfig();
+
+    // Validate HTTP in production: reject plaintext connections in production environments
+    // to prevent accidental exposure of sensitive blockchain interaction details (account keys,
+    // contract state, transaction details) to network sniffing. See docs/SECURITY.md.
+    if (rpcUrl.startsWith('http://') && config.NODE_ENV === 'production') {
+      throw new BlockchainError(
+        `SOROBAN_RPC_URL must use HTTPS in production. ` +
+          `Current scheme: http://, environment: production. ` +
+          `For details, see docs/SECURITY.md.`,
+        { rpcUrl: rpcUrl.split('://')[0] + '://...' }, // Log scheme only for security
+      );
+    }
+
+    // Warn about HTTP in any environment: alerts developers that plaintext connections are
+    // being used, acceptable only for local development/testing but not for production.
+    if (rpcUrl.startsWith('http://')) {
+      log.warn(
+        `SOROBAN_RPC_URL is using HTTP (unencrypted). ` +
+          `This is only acceptable in development/test environments. ` +
+          `For production, always use HTTPS.`,
+      );
+    }
+
     rpc.AxiosClient.defaults.timeout = SOROBAN_RPC_TIMEOUT_MS;
     this.server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith('http://') });
     this.breaker = new CircuitBreaker();
